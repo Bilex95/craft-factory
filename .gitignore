@@ -1,0 +1,4 @@
+.staging/
+.new-repo-name
+.new-repo-meta.json
+node_modules/

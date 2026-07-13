@@ -1,0 +1,80 @@
+name: Weekly Craft Project
+
+on:
+  schedule:
+    # Wednesday 11:05 UTC (12:05 WAT) + random 0-3h sleep below
+    # => publishes at a random time between ~12:05 and ~15:05 Lagos time
+    - cron: "5 11 * * 3"
+  workflow_dispatch:
+    inputs:
+      skip_delay:
+        description: "Skip the random delay (for manual test runs)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  create-weekly-project:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout factory
+        uses: actions/checkout@v4
+
+      - name: Random afternoon delay
+        if: ${{ github.event_name == 'schedule' || inputs.skip_delay == false }}
+        run: |
+          DELAY=$(( RANDOM % 10800 ))  # 0 to 3 hours in seconds
+          echo "Sleeping ${DELAY}s so the publish time varies week to week."
+          sleep $DELAY
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate this week's project
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node scripts/generate.js
+
+      - name: Publish as a new public repo
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_OWNER: ${{ github.repository_owner }}
+        run: bash scripts/publish.sh
+
+      - name: Update manifest and commit
+        run: |
+          git config user.name "craft-factory-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add repos.json templates/queue
+          git diff --cached --quiet || git commit -m "Manifest: add $(cat .new-repo-name)"
+          git push
+
+      - name: Post weekly digest issue
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_OWNER: ${{ github.repository_owner }}
+          FACTORY_REPO: ${{ github.repository }}
+        run: node scripts/digest.js
+
+  # Separate daily check: pings you if contributors are waiting on you anywhere
+  attention-check:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' }}
+    needs: create-weekly-project
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check for items needing your attention
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_OWNER: ${{ github.repository_owner }}
+          FACTORY_REPO: ${{ github.repository }}
+          ATTENTION_ONLY: "true"
+        run: node scripts/digest.js
