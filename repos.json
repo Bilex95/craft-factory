@@ -1,1 +1,7 @@
-[]
+[
+  {
+    "name": "meeting-meter",
+    "description": "A live counter showing what a meeting is costing as it happens — because time is literally money.",
+    "createdAt": "2026-07-13"
+  }
+]
