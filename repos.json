@@ -3,5 +3,10 @@
     "name": "meeting-meter",
     "description": "A live counter showing what a meeting is costing as it happens — because time is literally money.",
     "createdAt": "2026-07-13"
+  },
+  {
+    "name": "naija-phone-input",
+    "description": "A phone input that actually understands Nigerian numbers — 0803, +234, spaces, the lot.",
+    "createdAt": "2026-07-15"
   }
 ]
