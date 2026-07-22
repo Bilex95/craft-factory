@@ -8,5 +8,10 @@
     "name": "naija-phone-input",
     "description": "A phone input that actually understands Nigerian numbers — 0803, +234, spaces, the lot.",
     "createdAt": "2026-07-15"
+  },
+  {
+    "name": "checkout-guard",
+    "description": "A realistic mini checkout page plus the Playwright suite that would catch its real-world regressions.",
+    "createdAt": "2026-07-22"
   }
 ]
