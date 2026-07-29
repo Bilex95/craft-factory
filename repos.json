@@ -13,5 +13,10 @@
     "name": "checkout-guard",
     "description": "A realistic mini checkout page plus the Playwright suite that would catch its real-world regressions.",
     "createdAt": "2026-07-22"
+  },
+  {
+    "name": "modal-rescue",
+    "description": "The same modal built twice — the broken way most sites ship it, and the accessible fix — side by side.",
+    "createdAt": "2026-07-29"
   }
 ]
