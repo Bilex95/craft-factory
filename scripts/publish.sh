@@ -37,7 +37,12 @@ gh repo create "${GH_OWNER}/${NAME}" --public --description "${DESC}" --source=.
 
 # Topics (best-effort)
 if [ -n "$TOPICS" ]; then
-  gh repo edit "${GH_OWNER}/${NAME}" --add-topic "${TOPICS//,/ --add-topic }" || true
+  IFS=',' read -ra TOPIC_ARR <<< "$TOPICS"
+  ADD_TOPIC_ARGS=()
+  for t in "${TOPIC_ARR[@]}"; do
+    ADD_TOPIC_ARGS+=(--add-topic "$t")
+  done
+  gh repo edit "${GH_OWNER}/${NAME}" "${ADD_TOPIC_ARGS[@]}" || true
 fi
 
 # Good first issue (best-effort)
