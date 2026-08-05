@@ -23,5 +23,10 @@
     "name": "fair-split",
     "description": "Split a group bill fairly when people ordered different things — no more awkward math at the table.",
     "createdAt": "2026-08-05"
+  },
+  {
+    "name": "fair-split-w32",
+    "description": "Split a group bill fairly when people ordered different things — no more awkward math at the table.",
+    "createdAt": "2026-08-05"
   }
 ]
