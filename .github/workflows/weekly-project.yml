@@ -50,7 +50,10 @@ jobs:
         run: |
           git config user.name "craft-factory-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add repos.json templates/queue
+          git add repos.json
+          if [ -d templates/queue ]; then
+            git add templates/queue
+          fi
           git diff --cached --quiet || git commit -m "Manifest: add $(cat .new-repo-name)"
           git push
 
