@@ -18,5 +18,10 @@
     "name": "modal-rescue",
     "description": "The same modal built twice — the broken way most sites ship it, and the accessible fix — side by side.",
     "createdAt": "2026-07-29"
+  },
+  {
+    "name": "fair-split",
+    "description": "Split a group bill fairly when people ordered different things — no more awkward math at the table.",
+    "createdAt": "2026-08-05"
   }
 ]
