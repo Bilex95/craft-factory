@@ -23,5 +23,10 @@
     "name": "fair-split",
     "description": "Split a group bill fairly when people ordered different things — no more awkward math at the table.",
     "createdAt": "2026-08-05"
+  },
+  {
+    "name": "recipe-scaler",
+    "description": "Scale a recipe's ingredients to any serving count, with optional metric conversion.",
+    "createdAt": "2026-08-12"
   }
 ]
