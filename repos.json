@@ -28,5 +28,10 @@
     "name": "recipe-scaler",
     "description": "Scale a recipe's ingredients to any serving count, with optional metric conversion.",
     "createdAt": "2026-08-12"
+  },
+  {
+    "name": "international-address-form",
+    "description": "An address form whose fields and validation adapt per country instead of assuming US format.",
+    "createdAt": "2026-08-19"
   }
 ]
