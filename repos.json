@@ -33,5 +33,10 @@
     "name": "international-address-form",
     "description": "An address form whose fields and validation adapt per country instead of assuming US format.",
     "createdAt": "2026-08-19"
+  },
+  {
+    "name": "login-guard",
+    "description": "A login form with real rate-limit UX: a visible lockout countdown after failed attempts.",
+    "createdAt": "2026-08-26"
   }
 ]
