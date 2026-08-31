@@ -10,16 +10,17 @@ const ROOT = path.join(__dirname, "..");
 const OUT_DIR = path.join(ROOT, ".staging"); // project staged here, published by publish.sh
 const MANIFEST = path.join(ROOT, "repos.json");
 
-// Rotation keeps breadth across your skill areas; the model picks the
-// concrete real-world problem within each lane.
+// QA/SDET-forward: the testing lanes lead the rotation so the portfolio reads
+// as a quality-engineering identity first. The model picks the concrete
+// real-world problem within each lane.
 const LANES = [
+  { key: "playwright",    label: "Playwright E2E suite",  hint: "A realistic mini web page (login, cart, booking widget) PLUS a Playwright test suite that would catch real regressions: fixtures, network mocking, accessibility assertions, trace on failure. Include one deliberately failing test as a contributor exercise." },
+  { key: "cypress",       label: "Cypress E2E suite",     hint: "A realistic mini web page PLUS a Cypress suite: intercepts, custom commands, flake-resistant selectors, retry-ability. Include one deliberately failing test as a contributor exercise." },
+  { key: "api-testing",   label: "API contract testing", hint: "A test suite (plain JS, node:test or Playwright API mode) against a real public API solving a real verification need: schema-drift detection, rate-limit behaviour, error-contract checks, pagination correctness." },
+  { key: "accessibility", label: "Accessibility audit & fix", hint: "Take a common real-world bad pattern (inaccessible modal, div-button, keyboard-trap carousel) and ship both the broken version and the fixed version side by side, with an AUDIT.md mapping every fix to a WCAG criterion." },
+  { key: "form-ux",       label: "Form validation & UX", hint: "A realistic form problem done right (phone/address validation for a specific country, multi-step checkout, password UX, error recovery). Focus on inline validation, accessibility, and testable states." },
   { key: "ui-tool",       label: "UI micro-tool",        hint: "A small in-browser tool that solves a real everyday annoyance (splitting bills fairly, converting recipe quantities, timing meeting costs, comparing data plans). Vanilla HTML/CSS/JS, single page, genuinely usable." },
-  { key: "form-ux",       label: "Form & validation UX", hint: "A realistic form problem done right (phone/address validation for a specific country, multi-step checkout, password UX, error recovery). Focus on inline validation and accessibility." },
-  { key: "playwright",    label: "Playwright suite",     hint: "A realistic mini web page (login, cart, booking widget) PLUS a Playwright test suite that would catch real regressions. Include one deliberately failing test as a contributor exercise." },
-  { key: "cypress",       label: "Cypress suite",        hint: "A realistic mini web page PLUS a Cypress suite: intercepts, custom commands, flake-resistant selectors. Include one deliberately failing test as a contributor exercise." },
-  { key: "api-testing",   label: "API testing",          hint: "A test suite (plain JS, node:test or Playwright API mode) against a real public API solving a real verification need: schema drift detection, rate-limit behavior, error contract checks." },
-  { key: "accessibility", label: "Accessibility retrofit", hint: "Take a common real-world bad pattern (inaccessible modal, div-button, keyboard-trap carousel) and ship both the broken version and the fixed version side by side, with an AUDIT.md explaining every fix." },
-  { key: "automation",    label: "Workflow automation",  hint: "A small Node script or n8n-style workflow spec solving a real repetitive task: renaming design exports, generating alt-text checklists from HTML, converting CSV client lists to clean JSON." },
+  { key: "automation",    label: "QA workflow automation", hint: "A small Node script solving a real repetitive QA task: summarising a Playwright/JUnit report into markdown, generating a test-plan checklist from user stories, diffing two API responses for schema drift, converting a CSV of test cases to a runnable spec." },
 ];
 
 // Approach variation: one dimension per week so the 52 repos don't feel stamped
@@ -37,12 +38,6 @@ const APPROACHES = [
   "Comment generously in a tutorial tone, as if teaching a junior.",
   "Use progressive enhancement: the page must work without JS, then JS improves it.",
 ];
-
-function isoWeek() {
-  const d = new Date();
-  const jan1 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d - jan1) / 86400000 + jan1.getUTCDay() + 1) / 7);
-}
 
 function readManifest() {
   if (!fs.existsSync(MANIFEST)) return [];
@@ -65,8 +60,8 @@ function popQueue() {
   const project = JSON.parse(fs.readFileSync(file, "utf8"));
   fs.unlinkSync(file); // consumed; the manifest commit records the removal
   console.log(`Queue: using ${files[0]} (${files.length - 1} spec(s) remaining).`);
-  if (files.length - 1 <= 1) {
-    console.log("::warning::Project queue is nearly empty — top it up via Claude chat.");
+  if (files.length - 1 <= 3) {
+    console.log("::warning::Project queue is running low — top it up via Claude chat.");
   }
   return project;
 }
@@ -77,10 +72,10 @@ async function callClaude(lane, approach, pastRepos) {
 
   const prompt = `You are generating this week's project for a public GitHub portfolio of small, genuinely useful projects. Each project SOLVES A REAL EVERYDAY PROBLEM — no abstract demos, no toy katas. Visitors include recruiters and open-source contributors.
 
-This week's lane: ${lane.label}
+This run's lane: ${lane.label}
 Lane brief: ${lane.hint}
 
-Technical approach constraint for this week (follow it, it keeps the portfolio varied):
+Technical approach constraint for this run (follow it, it keeps the portfolio varied):
 ${approach}
 
 Existing repos (do NOT repeat these problems or names):
@@ -112,7 +107,7 @@ Respond ONLY with valid JSON, no markdown fences:
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5",
       max_tokens: 12000,
       messages: [{ role: "user", content: prompt }],
     }),
@@ -137,7 +132,7 @@ function loadFallback(lane, pastRepos) {
   const project = JSON.parse(fs.readFileSync(file, "utf8"));
   // Avoid name collisions if the fallback has been used before.
   if (pastRepos.some((r) => r.name === project.repoName)) {
-    project.repoName = `${project.repoName}-w${isoWeek()}`;
+    project.repoName = `${project.repoName}-${pastRepos.length}`;
   }
   return project;
 }
@@ -187,12 +182,14 @@ function stage(project) {
 }
 
 (async () => {
-  const week = isoWeek();
-  const lane = LANES[week % LANES.length];
-  const approach = APPROACHES[week % APPROACHES.length];
   const pastRepos = readManifest();
+  // Rotate by how many projects have shipped, not by calendar week — so two
+  // runs in the same week never land on an identical lane + approach.
+  const n = pastRepos.length;
+  const lane = LANES[n % LANES.length];
+  const approach = APPROACHES[n % APPROACHES.length];
 
-  console.log(`Week ${week} — lane: ${lane.label}`);
+  console.log(`Project #${n + 1} — lane: ${lane.label}`);
   console.log(`Approach: ${approach}`);
 
   let project = popQueue();

@@ -1,13 +1,23 @@
-# Setup Guide (for Tobi — delete after setup)
+# Setup Guide
 
 ## 1. Create a Personal Access Token (needed to create new repos)
 
-The default Actions token can't create repos outside itself, so:
+The default Actions token can't create repos outside itself, so you need a PAT.
 
-1. GitHub → **Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token**
-2. Scopes: check **repo** (and **workflow** if you ever want generated repos to contain workflows)
-3. Expiration: 90 days is fine — set a reminder to rotate it
-4. Copy the token
+**Recommended — fine-grained token:** GitHub → **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**. Resource owner = your account, repository access = **All repositories**, permissions:
+
+| Permission | Access |
+| --- | --- |
+| Administration | Read and write *(creates repos)* |
+| Contents | Read and write |
+| Issues | Read and write |
+| Metadata | Read *(auto-selected)* |
+
+Expiration: take the max (366 days) and set a calendar reminder.
+
+**Classic token (simpler, broader):** Tokens (classic) → Generate new token → scope **repo**. Add **workflow** only if you want generated repos to contain their own CI. 90 days, with a rotation reminder. Avoid "no expiration".
+
+Copy the token — you only see it once. Store it as the `GH_PAT` repo secret (below); rotating the token means updating that secret.
 
 ## 2. Create the factory repo (public)
 
@@ -29,8 +39,10 @@ Repo → **Settings → Secrets and variables → Actions**:
 
 ## 4. Test it
 
-**Actions → Weekly Craft Project → Run workflow** (skip_delay is on by default for manual runs).
-Within ~2 minutes you should see: a new public repo on your profile, topics + description set, a good-first-issue inside it, and a "📋 Weekly digest" issue in craft-factory.
+**Actions → Craft Project (Tue/Thu) → Run workflow.** Set **mode** to `new` (skip_delay is on by default for manual runs).
+Within ~2 minutes you should see: a new public repo on your profile, topics + description set, a good-first-issue inside it, and a "📋 Project digest" issue in craft-factory.
+
+Run it again with **mode** `refine` to check the Thursday path — it should post a "🔨 Refinement pass" issue and touch nothing else.
 
 ## 5. Notifications (this is your "Claude notified me" replacement)
 
@@ -38,24 +50,18 @@ Within ~2 minutes you should see: a new public repo on your profile, topics + de
 - github.com → **Settings → Notifications** → enable **Email** and **Web/Mobile** for *Participating* and *Watching*.
 - You automatically "watch" repos you create, so **every issue, PR, and comment from anyone pings you instantly** — including the weekly digest and the "🔔 needs your attention" alerts this factory posts.
 
-## 6. Weekly ritual (~1 hour, the part that makes it yours)
+## 6. The ritual (~1 hour per project, the part that makes it yours)
 
-When the digest lands each Wednesday:
-1. Open the new repo, use it, find something to improve, push 2–5 real commits.
-2. Reply to any contributor issues/PRs the digest flagged.
-3. Every month or so, pin your best 4–6 repos on your profile.
+- **Tuesday** — the "📋 Project digest" issue lands with the new repo. Open it, use it, find something real to improve, push 2–5 commits.
+- **Thursday** — the "🔨 Refinement pass" issue lands with a checklist for your newest repo(s), a portfolio rot scan, and anything waiting on your reply. Work the checklist; reply to contributors.
+- **Monthly** — pin your best 4–6 repos on your profile.
 
 ## Timing
 
-Cron fires Wednesday 11:05 UTC, then sleeps 0–3h randomly → publishes between **12:05 and 15:05 WAT**, different each week. Edit the cron line in `.github/workflows/weekly-project.yml` to change the day.
-
-## Your old daily-log repo
-
-Recommendation from our chat: disable its cron workflow (or archive the repo). Real weekly projects make the manufactured streak unnecessary.
-
+Cron fires **Tuesday and Thursday** at 11:05 UTC, then sleeps 0–3h randomly → publishes between **12:05 and 15:05 WAT**, different each run. Tuesday = new project; Thursday = refinement pass (no new repo). A `decide` job routes by weekday; a manual run picks the path via the **mode** input. Edit the cron line in `.github/workflows/craft-project.yml` to change days.
 
 ## Queue mode (no API key needed)
 
-The generator checks `templates/queue/` FIRST. If specs are there, it uses the oldest one and no API call happens at all. You start with 4 weeks pre-stocked (meeting-meter, naija-phone-input, checkout-guard, modal-rescue).
+The generator checks `templates/queue/` FIRST. If specs are there, it uses the oldest one and no API call happens at all.
 
-**To top up:** ask Claude in a chat — "generate 4 more project specs for my craft-factory queue, here's my repos.json so nothing repeats" — then save the JSON files into `templates/queue/` (named `005-...json`, `006-...json` so they run in order), commit, and push. The weekly digest warns you when the queue is nearly empty.
+**To top up:** ask Claude in a chat — "generate 6 more project specs for my craft-factory queue, here's my repos.json so nothing repeats" — then save the JSON files into `templates/queue/` with the next numbers so they run in order, commit, and push. The digest warns you when the queue is running low (≤ 3 specs left).

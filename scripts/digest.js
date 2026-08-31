@@ -5,7 +5,7 @@
 // (email + mobile) the moment this issue is created or updated.
 //
 // Modes:
-//   default          -> full weekly digest (new repo + attention list)
+//   default          -> full digest for a new-project run (new repo + attention list)
 //   ATTENTION_ONLY   -> only posts if something needs your response
 
 const { execSync } = require("child_process");
@@ -110,33 +110,33 @@ function buildReport() {
   // Queue alert: when 1 or 0 specs remain, open a dedicated issue so GitHub
   // pings you (email + mobile) with clear instructions to restock.
   const remaining = queueCount();
-  if (remaining <= 1) {
+  if (remaining <= 3) {
     const alertBody = [
       remaining === 0
-        ? "**Your project queue is EMPTY.** Next week will fall back to the generic template unless you restock."
-        : "**Only 1 project spec left in the queue** — after next week it runs dry.",
+        ? "**Your project queue is EMPTY.** The next run falls back to the API (if `ANTHROPIC_API_KEY` is set) or the generic template."
+        : `**Only ${remaining} project spec(s) left in the queue.** Restock before it runs dry.`,
       "",
       "### How to restock (5 minutes)",
-      "1. Open a Claude chat and say: *\"Generate 4 more project specs for my craft-factory queue\"* — paste the contents of `repos.json` so nothing repeats.",
-      "2. Save each JSON into `templates/queue/` with the next numbers (e.g. `005-name.json`, `006-name.json`).",
-      "3. Commit and push. Done — the next 4 weeks are covered.",
+      "1. Open a Claude chat and say: *\"Generate 6 more project specs for my craft-factory queue\"* — paste the contents of `repos.json` so nothing repeats.",
+      "2. Save each JSON into `templates/queue/` with the next numbers so they run in order.",
+      "3. Commit and push. Done — the next several drops are covered.",
     ].join("\n");
     gh(
-      `issue create --repo ${FACTORY} --title "🪣 Project queue is ${remaining === 0 ? "empty" : "almost empty"} — time to restock" --body ${JSON.stringify(alertBody)}`
+      `issue create --repo ${FACTORY} --title "🪣 Project queue is ${remaining === 0 ? "empty" : "running low"} — time to restock" --body ${JSON.stringify(alertBody)}`
     );
     console.log("Queue restock alert posted.");
   }
 
-  // Full weekly digest
+  // Full digest for a new-project run
   const newRepo = fs.existsSync(path.join(ROOT, ".new-repo-name"))
     ? fs.readFileSync(path.join(ROOT, ".new-repo-name"), "utf8").trim()
     : null;
 
   const body = [
-    `## Weekly digest — ${today}`,
+    `## Project digest — ${today}`,
     "",
     newRepo
-      ? `✅ **New project published:** [${newRepo}](https://github.com/${OWNER}/${newRepo})\n\n**Your job this week (~1 hour):** open it, improve something by hand, push a couple of real commits, and make sure the good-first-issue reads well. That pass is what makes it yours.`
+      ? `✅ **New project published:** [${newRepo}](https://github.com/${OWNER}/${newRepo})\n\n**Your job now (~1 hour):** open it, improve something by hand, push a couple of real commits, and make sure the good-first-issue reads well. That pass is what makes it yours — Thursday's refinement issue will remind you.`
       : "⚠️ **No new project was published this run** — check the workflow logs.",
     "",
     `📦 Portfolio size: **${totalRepos} repos** · 🪣 Queue: **${remaining} spec(s) remaining**`,
@@ -147,7 +147,7 @@ function buildReport() {
   ].join("\n");
 
   gh(
-    `issue create --repo ${FACTORY} --title "📋 Weekly digest — ${today}" --body ${JSON.stringify(body)}`
+    `issue create --repo ${FACTORY} --title "📋 Project digest — ${today}" --body ${JSON.stringify(body)}`
   );
-  console.log("Weekly digest posted.");
+  console.log("Project digest posted.");
 })();

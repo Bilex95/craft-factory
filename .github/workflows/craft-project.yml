@@ -1,12 +1,18 @@
-name: Weekly Craft Project
+name: Craft Project (Tue/Thu)
 
 on:
   schedule:
-    # Wednesday 11:05 UTC (12:05 WAT) + random 0-3h sleep below
-    # => publishes at a random time between ~12:05 and ~15:05 Lagos time
-    - cron: "5 11 * * 3"
+    # Tuesday & Thursday 11:05 UTC (12:05 WAT) + random 0-3h sleep below.
+    #   Tue -> generate + publish a new public repo, then post the digest.
+    #   Thu -> post a hand-refinement pass (checklist + rot scan). No new repo.
+    - cron: "5 11 * * 2,4"
   workflow_dispatch:
     inputs:
+      mode:
+        description: "Run to simulate (auto = decide by weekday)"
+        type: choice
+        options: [auto, new, refine]
+        default: auto
       skip_delay:
         description: "Skip the random delay (for manual test runs)"
         type: boolean
@@ -17,7 +23,29 @@ permissions:
   issues: write
 
 jobs:
-  create-weekly-project:
+  decide:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.pick.outputs.mode }}
+    steps:
+      - id: pick
+        run: |
+          REQ="${{ inputs.mode || 'auto' }}"
+          if [ "$REQ" != "auto" ]; then
+            echo "mode=$REQ" >> "$GITHUB_OUTPUT"
+          else
+            DOW=$(date -u +%u)   # 1=Mon .. 7=Sun
+            if [ "$DOW" = "4" ]; then
+              echo "mode=refine" >> "$GITHUB_OUTPUT"
+            else
+              echo "mode=new" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+          echo "Resolved mode: $(cat "$GITHUB_OUTPUT")"
+
+  new-project:
+    needs: decide
+    if: ${{ needs.decide.outputs.mode == 'new' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout factory
@@ -27,7 +55,7 @@ jobs:
         if: ${{ github.event_name == 'schedule' || inputs.skip_delay == false }}
         run: |
           DELAY=$(( RANDOM % 10800 ))  # 0 to 3 hours in seconds
-          echo "Sleeping ${DELAY}s so the publish time varies week to week."
+          echo "Sleeping ${DELAY}s so the publish time varies run to run."
           sleep $DELAY
 
       - name: Setup Node
@@ -35,7 +63,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: Generate this week's project
+      - name: Generate this run's project
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: node scripts/generate.js
@@ -57,27 +85,29 @@ jobs:
           git diff --cached --quiet || git commit -m "Manifest: add $(cat .new-repo-name)"
           git push
 
-      - name: Post weekly digest issue
+      - name: Post project digest issue
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GH_OWNER: ${{ github.repository_owner }}
           FACTORY_REPO: ${{ github.repository }}
         run: node scripts/digest.js
 
-  # Separate daily check: pings you if contributors are waiting on you anywhere
-  attention-check:
+  refine:
+    needs: decide
+    if: ${{ needs.decide.outputs.mode == 'refine' }}
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'schedule' }}
-    needs: create-weekly-project
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout factory
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Check for items needing your attention
+
+      - name: Post refinement pass issue
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GH_OWNER: ${{ github.repository_owner }}
           FACTORY_REPO: ${{ github.repository }}
-          ATTENTION_ONLY: "true"
-        run: node scripts/digest.js
+        run: node scripts/refine.js
