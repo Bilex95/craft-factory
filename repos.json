@@ -38,5 +38,10 @@
     "name": "login-guard",
     "description": "A login form with real rate-limit UX: a visible lockout countdown after failed attempts.",
     "createdAt": "2026-08-26"
+  },
+  {
+    "name": "carousel-a11y-fix",
+    "description": "A testimonial carousel built twice: the broken keyboard-trapping way, and the accessible fix.",
+    "createdAt": "2026-08-31"
   }
 ]
