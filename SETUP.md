@@ -30,12 +30,12 @@ gh repo create craft-factory --public --source=. --push
 
 ## 3. Add secrets
 
-Repo → **Settings → Secrets and variables → Actions**:
+Repo → **Settings → Secrets and variables → Actions → New repository secret**:
 
 | Secret | Value |
 | --- | --- |
-| `ANTHROPIC_API_KEY` | OPTIONAL — skip it! Queue mode (see below) needs no key |
-| `GH_PAT` | the token from step 1 |
+| `GH_PAT` | the token from step 1. **A classic token with the `repo` scope is the reliable choice** — fine-grained tokens can only create repos when scoped to *All repositories* with *Administration: read/write*. If publishing fails with `401 Bad credentials` or `Resource not accessible by personal access token (createRepository)`, this secret is the cause. |
+| `ANTHROPIC_API_KEY` | Optional. Only used when the queue in `templates/queue/` is empty — then the generator calls the Claude API to invent the next project instead of falling back to the bundled generic template. Add it once the queue is running low if you don't want to keep topping it up by hand. Not needed while specs are queued. |
 
 ## 4. Test it
 
