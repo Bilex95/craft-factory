@@ -11,7 +11,7 @@
 // Because you own the factory repo, creating this issue pings you natively
 // (email + mobile) the moment it lands.
 
-const { execSync } = require("child_process");
+const { execSync, execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -26,6 +26,16 @@ function gh(args) {
 
 function ghJSON(args) {
   return JSON.parse(gh(args));
+}
+
+// Create an issue without going through a shell — the body contains backticks
+// and quotes that a shell would mangle (command substitution, word splitting).
+function createIssue(repo, title, body) {
+  return execFileSync(
+    "gh",
+    ["issue", "create", "--repo", repo, "--title", title, "--body-file", "-"],
+    { input: body, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
+  );
 }
 
 function manifest() {
@@ -171,8 +181,6 @@ function checklist(name, url) {
     "_This pass posts a checklist only — it never commits code. That part is yours._",
   ].join("\n");
 
-  gh(
-    `issue create --repo ${FACTORY} --title "🔨 Refinement pass — ${today}" --body ${JSON.stringify(body)}`
-  );
+  createIssue(FACTORY, `🔨 Refinement pass — ${today}`, body);
   console.log("Refinement pass issue posted.");
 })();

@@ -8,7 +8,7 @@
 //   default          -> full digest for a new-project run (new repo + attention list)
 //   ATTENTION_ONLY   -> only posts if something needs your response
 
-const { execSync } = require("child_process");
+const { execSync, execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -23,6 +23,16 @@ function gh(args) {
 
 function ghJSON(args) {
   return JSON.parse(gh(args));
+}
+
+// Create an issue without a shell — bodies contain backticks and quotes that a
+// shell would mangle (command substitution, word splitting).
+function createIssue(repo, title, body) {
+  return execFileSync(
+    "gh",
+    ["issue", "create", "--repo", repo, "--title", title, "--body-file", "-"],
+    { input: body, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
+  );
 }
 
 function queueCount() {
@@ -100,9 +110,7 @@ function buildReport() {
       "",
       "_Reply, review, or close them when you get a moment — contributors are watching!_",
     ].join("\n");
-    gh(
-      `issue create --repo ${FACTORY} --title "🔔 ${attentionCount} item(s) need your attention (${today})" --body ${JSON.stringify(body)}`
-    );
+    createIssue(FACTORY, `🔔 ${attentionCount} item(s) need your attention (${today})`, body);
     console.log("Attention alert posted.");
     return;
   }
@@ -121,8 +129,10 @@ function buildReport() {
       "2. Save each JSON into `templates/queue/` with the next numbers so they run in order.",
       "3. Commit and push. Done — the next several drops are covered.",
     ].join("\n");
-    gh(
-      `issue create --repo ${FACTORY} --title "🪣 Project queue is ${remaining === 0 ? "empty" : "running low"} — time to restock" --body ${JSON.stringify(alertBody)}`
+    createIssue(
+      FACTORY,
+      `🪣 Project queue is ${remaining === 0 ? "empty" : "running low"} — time to restock`,
+      alertBody
     );
     console.log("Queue restock alert posted.");
   }
@@ -146,8 +156,6 @@ function buildReport() {
       : "## Needs your attention\n\nNothing pending — all quiet. 🎉",
   ].join("\n");
 
-  gh(
-    `issue create --repo ${FACTORY} --title "📋 Project digest — ${today}" --body ${JSON.stringify(body)}`
-  );
+  createIssue(FACTORY, `📋 Project digest — ${today}`, body);
   console.log("Project digest posted.");
 })();
