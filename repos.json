@@ -43,5 +43,10 @@
     "name": "carousel-a11y-fix",
     "description": "A testimonial carousel built twice: the broken keyboard-trapping way, and the accessible fix.",
     "createdAt": "2026-08-31"
+  },
+  {
+    "name": "cart-checks",
+    "description": "A shopping cart with coupons and VAT, plus a Cypress suite covering totals, empty state, and API failure.",
+    "createdAt": "2026-09-01"
   }
 ]
