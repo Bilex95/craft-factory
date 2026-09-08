@@ -48,5 +48,10 @@
     "name": "cart-checks",
     "description": "A shopping cart with coupons and VAT, plus a Cypress suite covering totals, empty state, and API failure.",
     "createdAt": "2026-09-01"
+  },
+  {
+    "name": "api-drift",
+    "description": "A node:test contract suite against a live public currency API — catches schema drift before your app does.",
+    "createdAt": "2026-09-08"
   }
 ]
