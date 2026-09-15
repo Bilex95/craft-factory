@@ -53,5 +53,10 @@
     "name": "api-drift",
     "description": "A node:test contract suite against a live public currency API — catches schema drift before your app does.",
     "createdAt": "2026-09-08"
+  },
+  {
+    "name": "report-to-md",
+    "description": "Turns a Playwright JSON test report into a clean markdown summary for PR comments and CI.",
+    "createdAt": "2026-09-15"
   }
 ]
