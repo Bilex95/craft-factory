@@ -58,5 +58,10 @@
     "name": "report-to-md",
     "description": "Turns a Playwright JSON test report into a clean markdown summary for PR comments and CI.",
     "createdAt": "2026-09-15"
+  },
+  {
+    "name": "fair-split-12",
+    "description": "Split a group bill fairly when people ordered different things — no more awkward math at the table.",
+    "createdAt": "2026-09-22"
   }
 ]
