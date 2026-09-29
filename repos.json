@@ -63,5 +63,10 @@
     "name": "fair-split-12",
     "description": "Split a group bill fairly when people ordered different things — no more awkward math at the table.",
     "createdAt": "2026-09-22"
+  },
+  {
+    "name": "fair-split-13",
+    "description": "Split a group bill fairly when people ordered different things — no more awkward math at the table.",
+    "createdAt": "2026-09-29"
   }
 ]
