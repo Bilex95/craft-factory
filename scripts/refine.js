@@ -28,6 +28,22 @@ function ghJSON(args) {
   return JSON.parse(gh(args));
 }
 
+// Link to a user's profile WITHOUT an @mention, so contributors aren't
+// notified by (and confused by) this private reminder issue.
+// Bot accounts ("dependabot[bot]") live under /apps/<name>, not /<login>.
+function quietUser(login) {
+  if (!login) return "unknown";
+  const bot = login.match(/^(.+)\[bot\]$/);
+  const url = bot ? `https://github.com/apps/${bot[1]}` : `https://github.com/${login}`;
+  return `[${login}](${url})`;
+}
+
+// Defuse @mentions inside text contributors wrote (PR/issue titles). A
+// zero-width space after "@" keeps it readable but stops GitHub notifying.
+function quiet(text) {
+  return String(text ?? "").replace(/@(?=[A-Za-z0-9-])/g, "@​");
+}
+
 // Create an issue without going through a shell — the body contains backticks
 // and quotes that a shell would mangle (command substitution, word splitting).
 function createIssue(repo, title, body) {
@@ -77,7 +93,7 @@ function needsReply(name) {
     for (const pr of prs) {
       if (pr.author?.login !== OWNER) {
         items.push(
-          `🔀 [PR #${pr.number}](https://github.com/${OWNER}/${name}/pull/${pr.number}) — "${pr.title}" (@${pr.author?.login})`
+          `🔀 [PR #${pr.number}](https://github.com/${OWNER}/${name}/pull/${pr.number}) — "${quiet(pr.title)}" (${quietUser(pr.author?.login)})`
         );
       }
     }
@@ -88,7 +104,7 @@ function needsReply(name) {
       const last = is.comments?.[is.comments.length - 1];
       if (last && last.author?.login !== OWNER) {
         items.push(
-          `💬 [Issue #${is.number}](https://github.com/${OWNER}/${name}/issues/${is.number}) — "${is.title}" (last reply @${last.author?.login})`
+          `💬 [Issue #${is.number}](https://github.com/${OWNER}/${name}/issues/${is.number}) — "${quiet(is.title)}" (last reply ${quietUser(last.author?.login)})`
         );
       }
     }
