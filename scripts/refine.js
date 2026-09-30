@@ -41,7 +41,7 @@ function quietUser(login) {
 // Defuse @mentions inside text contributors wrote (PR/issue titles). A
 // zero-width space after "@" keeps it readable but stops GitHub notifying.
 function quiet(text) {
-  return String(text ?? "").replace(/@(?=[A-Za-z0-9-])/g, "@​");
+  return String(text ?? "").replace(/@(?=[A-Za-z0-9-])/g, "@\u200B");
 }
 
 // Create an issue without going through a shell — the body contains backticks
