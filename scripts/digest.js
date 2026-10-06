@@ -25,6 +25,23 @@ function ghJSON(args) {
   return JSON.parse(gh(args));
 }
 
+// Link to a user's profile WITHOUT an @mention. An @mention in the digest
+// notifies that contributor, who then reads your "Your job now" notes as
+// tasks assigned to them. A plain profile link is still clickable but silent.
+// Bot accounts ("dependabot[bot]") live under /apps/<name>, not /<login>.
+function quietUser(login) {
+  if (!login) return "unknown";
+  const bot = login.match(/^(.+)\[bot\]$/);
+  const url = bot ? `https://github.com/apps/${bot[1]}` : `https://github.com/${login}`;
+  return `[${login}](${url})`;
+}
+
+// Defuse @mentions inside text contributors wrote (PR/issue titles). A
+// zero-width space after "@" keeps it readable but stops GitHub notifying.
+function quiet(text) {
+  return String(text ?? "").replace(/@(?=[A-Za-z0-9-])/g, "@\u200B");
+}
+
 // Create an issue without a shell — bodies contain backticks and quotes that a
 // shell would mangle (command substitution, word splitting).
 function createIssue(repo, title, body) {
@@ -86,7 +103,7 @@ function buildReport() {
     const lines = items.map((i) =>
       i.type === "error"
         ? `- ⚠️ ${i.title}`
-        : `- ${i.type === "PR" ? "🔀 PR" : "💬 Issue"} [#${i.num}](https://github.com/${OWNER}/${r.name}/${i.type === "PR" ? "pull" : "issues"}/${i.num}) — "${i.title}" (from @${i.who})`
+        : `- ${i.type === "PR" ? "🔀 PR" : "💬 Issue"} [#${i.num}](https://github.com/${OWNER}/${r.name}/${i.type === "PR" ? "pull" : "issues"}/${i.num}) — "${quiet(i.title)}" (from ${quietUser(i.who)})`
     );
     sections.push(`### ${r.name}\n${lines.join("\n")}`);
   }
