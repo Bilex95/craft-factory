@@ -7,23 +7,18 @@
 // Modes:
 //   default          -> full digest for a new-project run (new repo + attention list)
 //   ATTENTION_ONLY   -> only posts if something needs your response
+//
+// Housekeeping (see lib/issues.js): a new digest closes the previous open
+// digest once it has been posted, and restock alerts are commented on rather
+// than duplicated, then closed when the queue is genuinely replenished.
 
-const { execSync, execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const ghIO = require("./lib/gh");
+const { readQueue } = require("./lib/spec");
+const { PREFIX, restockAction, supersede } = require("./lib/issues");
 
 const ROOT = path.join(__dirname, "..");
-const OWNER = process.env.GH_OWNER;
-const FACTORY = process.env.FACTORY_REPO; // e.g. "Bilex95/craft-factory"
-const ATTENTION_ONLY = process.env.ATTENTION_ONLY === "true";
-
-function gh(args) {
-  return execSync(`gh ${args}`, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
-}
-
-function ghJSON(args) {
-  return JSON.parse(gh(args));
-}
 
 // Link to a user's profile WITHOUT an @mention. An @mention in the digest
 // notifies that contributor, who then reads your "Your job now" notes as
@@ -42,46 +37,40 @@ function quiet(text) {
   return String(text ?? "").replace(/(?<!\w)@(?=[A-Za-z0-9-])/g, "@\u200B");
 }
 
-// Create an issue without a shell — bodies contain backticks and quotes that a
-// shell would mangle (command substitution, word splitting).
-function createIssue(repo, title, body) {
-  return execFileSync(
-    "gh",
-    ["issue", "create", "--repo", repo, "--title", title, "--body-file", "-"],
-    { input: body, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
-  );
-}
-
-function queueCount() {
-  const qdir = path.join(ROOT, "templates", "queue");
-  if (!fs.existsSync(qdir)) return 0;
-  return fs.readdirSync(qdir).filter((f) => f.endsWith(".json")).length;
-}
-
-function manifest() {
-  const p = path.join(ROOT, "repos.json");
+function manifest(root) {
+  const p = path.join(root, "repos.json");
   return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : [];
 }
 
-function needsAttention(repo) {
+// Only specs that would actually be published count: invalid or duplicate
+// specs sitting in the queue don't stop it from being "empty".
+function queueCount(root, repos) {
+  return readQueue(path.join(root, "templates", "queue"), repos).filter((q) => q.ok).length;
+}
+
+function readIfExists(file) {
+  return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : null;
+}
+
+function needsAttention(io, owner, repo) {
   const items = [];
   try {
     // Open PRs: any PR from someone else, or where the last comment isn't yours.
-    const prs = ghJSON(
-      `pr list --repo ${OWNER}/${repo} --state open --json number,title,author,updatedAt --limit 20`
+    const prs = io.ghJSON(
+      `pr list --repo ${owner}/${repo} --state open --json number,title,author,updatedAt --limit 20`
     );
     for (const pr of prs) {
-      if (pr.author?.login !== OWNER) {
+      if (pr.author?.login !== owner) {
         items.push({ type: "PR", num: pr.number, title: pr.title, who: pr.author?.login });
       }
     }
     // Open issues with recent comments from others.
-    const issues = ghJSON(
-      `issue list --repo ${OWNER}/${repo} --state open --json number,title,comments,author --limit 30`
+    const issues = io.ghJSON(
+      `issue list --repo ${owner}/${repo} --state open --json number,title,comments,author --limit 30`
     );
     for (const is of issues) {
       const last = is.comments?.[is.comments.length - 1];
-      if (last && last.author?.login !== OWNER) {
+      if (last && last.author?.login !== owner) {
         items.push({ type: "issue", num: is.number, title: is.title, who: last.author?.login });
       }
     }
@@ -91,13 +80,13 @@ function needsAttention(repo) {
   return items;
 }
 
-function buildReport() {
-  const repos = manifest();
+function buildReport(io, owner, repos) {
+  const OWNER = owner; // keeps the notification-safe line below unchanged from PR #39
   const sections = [];
   let attentionCount = 0;
 
   for (const r of repos) {
-    const items = needsAttention(r.name);
+    const items = needsAttention(io, owner, r.name);
     if (items.length === 0) continue;
     attentionCount += items.length;
     const lines = items.map((i) =>
@@ -111,11 +100,64 @@ function buildReport() {
   return { sections, attentionCount, totalRepos: repos.length };
 }
 
-(() => {
-  const { sections, attentionCount, totalRepos } = buildReport();
-  const today = new Date().toISOString().slice(0, 10);
+function restockBody(remaining, factory) {
+  return [
+    remaining === 0
+      ? "**Your project queue is EMPTY.** New-project runs will try the Claude API (if `ANTHROPIC_API_KEY` has credit); if that fails, nothing is published that week — the factory never republishes a fallback template."
+      : `**Only ${remaining} valid project spec(s) left in the queue.** Restock before it runs dry.`,
+    "",
+    "### How to restock",
+    "1. Open a Claude chat, paste [`templates/SPEC.md`](https://github.com/" +
+      factory +
+      "/blob/main/templates/SPEC.md) and the contents of `repos.json`, and ask for 6 project specs that follow it — each solving a real problem for a named group of people at work.",
+    "2. Save each JSON into `templates/queue/` with the next numbers so they run in order.",
+    "3. Run `node --test` locally — the queue test checks every spec against the quality gate and runs each project's own tests.",
+    "4. Commit and push. This alert closes itself once more than 3 valid specs are queued.",
+  ].join("\n");
+}
 
-  if (ATTENTION_ONLY) {
+// Create, comment on, or close the restock alert. Never opens a second one.
+function handleRestock(io, factory, remaining, today) {
+  const action = restockAction(remaining, io.listOpenIssues(factory));
+  if (action.type === "create") {
+    io.createIssue(
+      factory,
+      `${PREFIX.restock} is ${remaining === 0 ? "empty" : "running low"} — time to restock`,
+      restockBody(remaining, factory)
+    );
+    console.log("Queue restock alert posted.");
+  } else if (action.type === "comment") {
+    io.commentIssue(factory, action.issue.number, `Still ${remaining} valid spec(s) in the queue as of ${today}.`);
+    console.log(`Restock alert #${action.issue.number} updated.`);
+  } else if (action.type === "close") {
+    io.closeIssue(factory, action.issue.number, `Queue replenished: ${remaining} valid spec(s) as of ${today}.`);
+    console.log(`Restock alert #${action.issue.number} closed — queue replenished.`);
+  }
+  return action;
+}
+
+function publishedLine(owner, newRepo, skipReason) {
+  if (newRepo) {
+    return `✅ **New project published:** [${newRepo}](https://github.com/${owner}/${newRepo})\n\n**Your job now (~1 hour):** open it, improve something by hand, push a couple of real commits, and make sure the good-first-issue reads well. That pass is what makes it yours — Thursday's refinement issue will remind you.`;
+  }
+  if (skipReason) {
+    return `⏸️ **No new project this run.** ${quiet(skipReason)}\n\nNothing was published: the factory only ships specs that pass the quality gate, and never republishes a fallback template. Restock the queue (see the 🪣 alert) or restore API access.`;
+  }
+  return "⚠️ **No new project was published this run** — check the workflow logs.";
+}
+
+function main({
+  io = ghIO,
+  root = ROOT,
+  owner = process.env.GH_OWNER,
+  factory = process.env.FACTORY_REPO, // e.g. "Bilex95/craft-factory"
+  attentionOnly = process.env.ATTENTION_ONLY === "true",
+  today = new Date().toISOString().slice(0, 10),
+} = {}) {
+  const repos = manifest(root);
+  const { sections, attentionCount, totalRepos } = buildReport(io, owner, repos);
+
+  if (attentionOnly) {
     if (attentionCount === 0) {
       console.log("Nothing needs your attention. No alert posted.");
       return;
@@ -127,52 +169,46 @@ function buildReport() {
       "",
       "_Reply, review, or close them when you get a moment — contributors are watching!_",
     ].join("\n");
-    createIssue(FACTORY, `🔔 ${attentionCount} item(s) need your attention (${today})`, body);
+    io.createIssue(factory, `🔔 ${attentionCount} item(s) need your attention (${today})`, body);
     console.log("Attention alert posted.");
     return;
   }
 
-  // Queue alert: when 1 or 0 specs remain, open a dedicated issue so GitHub
-  // pings you (email + mobile) with clear instructions to restock.
-  const remaining = queueCount();
-  if (remaining <= 3) {
-    const alertBody = [
-      remaining === 0
-        ? "**Your project queue is EMPTY.** The next run falls back to the API (if `ANTHROPIC_API_KEY` is set) or the generic template."
-        : `**Only ${remaining} project spec(s) left in the queue.** Restock before it runs dry.`,
-      "",
-      "### How to restock (5 minutes)",
-      "1. Open a Claude chat and say: *\"Generate 6 more project specs for my craft-factory queue\"* — paste the contents of `repos.json` so nothing repeats.",
-      "2. Save each JSON into `templates/queue/` with the next numbers so they run in order.",
-      "3. Commit and push. Done — the next several drops are covered.",
-    ].join("\n");
-    createIssue(
-      FACTORY,
-      `🪣 Project queue is ${remaining === 0 ? "empty" : "running low"} — time to restock`,
-      alertBody
+  // Queue alert: when 3 or fewer valid specs remain, keep ONE open issue so
+  // GitHub pings you (email + mobile) with clear instructions to restock.
+  // Restock housekeeping must never cost you the digest itself: a failed gh
+  // call here is logged as a workflow warning and the digest still posts.
+  const remaining = queueCount(root, repos);
+  try {
+    handleRestock(io, factory, remaining, today);
+  } catch (e) {
+    console.warn(
+      `::warning::Restock alert handling failed (${remaining} valid spec(s) queued); the digest will still be posted. ${String(e && e.message).slice(0, 300)}`
     );
-    console.log("Queue restock alert posted.");
   }
 
-  // Full digest for a new-project run
-  const newRepo = fs.existsSync(path.join(ROOT, ".new-repo-name"))
-    ? fs.readFileSync(path.join(ROOT, ".new-repo-name"), "utf8").trim()
-    : null;
+  // Full digest for a new-project run. generate.js leaves either
+  // .new-repo-name (published) or .skip-reason (nothing published, and why).
+  const newRepo = readIfExists(path.join(root, ".new-repo-name"));
+  const skipReason = newRepo ? null : readIfExists(path.join(root, ".skip-reason"));
 
   const body = [
     `## Project digest — ${today}`,
     "",
-    newRepo
-      ? `✅ **New project published:** [${newRepo}](https://github.com/${OWNER}/${newRepo})\n\n**Your job now (~1 hour):** open it, improve something by hand, push a couple of real commits, and make sure the good-first-issue reads well. That pass is what makes it yours — Thursday's refinement issue will remind you.`
-      : "⚠️ **No new project was published this run** — check the workflow logs.",
+    publishedLine(owner, newRepo, skipReason),
     "",
-    `📦 Portfolio size: **${totalRepos} repos** · 🪣 Queue: **${remaining} spec(s) remaining**`,
+    `📦 Portfolio size: **${totalRepos} repos** · 🪣 Queue: **${remaining} valid spec(s) remaining**`,
     "",
     sections.length > 0
       ? `## Needs your attention (${attentionCount})\n\n${sections.join("\n\n")}`
       : "## Needs your attention\n\nNothing pending — all quiet. 🎉",
   ].join("\n");
 
-  createIssue(FACTORY, `📋 Project digest — ${today}`, body);
+  const url = io.createIssue(factory, `${PREFIX.digest} — ${today}`, body);
   console.log("Project digest posted.");
-})();
+  supersede(io, factory, PREFIX.digest, url);
+}
+
+module.exports = { quiet, quietUser, buildReport, restockBody, publishedLine, main };
+
+if (require.main === module) main();
