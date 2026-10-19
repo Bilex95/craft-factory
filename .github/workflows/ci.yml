@@ -1,0 +1,25 @@
+name: CI
+
+# Checks every pull request. Offline only: no secrets, no GitHub writes, no
+# publishing. The tests use fakes in place of the GitHub CLI and the API.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Syntax check
+        run: for f in scripts/*.js scripts/lib/*.js test/*.js; do node --check "$f"; done
+
+      - name: Unit tests
+        run: node --test

@@ -1,29 +1,21 @@
 // Craft Factory — weekly project generator
-// Generates one small project that solves a REAL everyday problem,
-// with a deliberately varied technical approach each week.
-// Falls back to a bundled template if the API is unavailable.
+// Picks one small project that solves a REAL problem for a named group of
+// people at work, with a deliberately varied technical approach each week.
+//
+// Source order: the hand-curated queue (templates/queue/), then the Claude
+// API. Every spec must pass the quality gate and duplicate check in
+// lib/spec.js. If nothing passes — empty queue and no API — NOTHING is
+// published: the run writes .skip-reason for the digest to report and sets
+// the `published=false` step output. There is no fallback template.
 
 const fs = require("fs");
 const path = require("path");
+const { AREAS } = require("./lib/areas");
+const { SCAFFOLD_LINE, README_SECTIONS, checkSpec, readQueue } = require("./lib/spec");
 
 const ROOT = path.join(__dirname, "..");
-const OUT_DIR = path.join(ROOT, ".staging"); // project staged here, published by publish.sh
-const MANIFEST = path.join(ROOT, "repos.json");
 
-// QA/SDET-forward: the testing lanes lead the rotation so the portfolio reads
-// as a quality-engineering identity first. The model picks the concrete
-// real-world problem within each lane.
-const LANES = [
-  { key: "playwright",    label: "Playwright E2E suite",  hint: "A realistic mini web page (login, cart, booking widget) PLUS a Playwright test suite that would catch real regressions: fixtures, network mocking, accessibility assertions, trace on failure. Include one deliberately failing test as a contributor exercise." },
-  { key: "cypress",       label: "Cypress E2E suite",     hint: "A realistic mini web page PLUS a Cypress suite: intercepts, custom commands, flake-resistant selectors, retry-ability. Include one deliberately failing test as a contributor exercise." },
-  { key: "api-testing",   label: "API contract testing", hint: "A test suite (plain JS, node:test or Playwright API mode) against a real public API solving a real verification need: schema-drift detection, rate-limit behaviour, error-contract checks, pagination correctness." },
-  { key: "accessibility", label: "Accessibility audit & fix", hint: "Take a common real-world bad pattern (inaccessible modal, div-button, keyboard-trap carousel) and ship both the broken version and the fixed version side by side, with an AUDIT.md mapping every fix to a WCAG criterion." },
-  { key: "form-ux",       label: "Form validation & UX", hint: "A realistic form problem done right (phone/address validation for a specific country, multi-step checkout, password UX, error recovery). Focus on inline validation, accessibility, and testable states." },
-  { key: "ui-tool",       label: "UI micro-tool",        hint: "A small in-browser tool that solves a real everyday annoyance (splitting bills fairly, converting recipe quantities, timing meeting costs, comparing data plans). Vanilla HTML/CSS/JS, single page, genuinely usable." },
-  { key: "automation",    label: "QA workflow automation", hint: "A small Node script solving a real repetitive QA task: summarising a Playwright/JUnit report into markdown, generating a test-plan checklist from user stories, diffing two API responses for schema drift, converting a CSV of test cases to a runnable spec." },
-];
-
-// Approach variation: one dimension per week so the 52 repos don't feel stamped
+// Approach variation: one dimension per week so the repos don't feel stamped
 // from one mold. This varies architecture/technique — the projects remain
 // honestly generated-then-refined, per the repo's own README.
 const APPROACHES = [
@@ -39,65 +31,105 @@ const APPROACHES = [
   "Use progressive enhancement: the page must work without JS, then JS improves it.",
 ];
 
-function readManifest() {
-  if (!fs.existsSync(MANIFEST)) return [];
-  return JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
+function paths(root) {
+  return {
+    out: path.join(root, ".staging"), // project staged here, published by publish.sh
+    manifest: path.join(root, "repos.json"),
+    queue: path.join(root, "templates", "queue"),
+    newName: path.join(root, ".new-repo-name"),
+    meta: path.join(root, ".new-repo-meta.json"),
+    skip: path.join(root, ".skip-reason"),
+  };
+}
+
+function readManifest(file) {
+  if (!fs.existsSync(file)) return [];
+  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
 function slugify(s) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 50);
 }
 
-
-// Queue mode: if templates/queue/ has specs (generated via Claude.ai chat and
-// committed by hand), use the oldest one and delete it. Zero API cost.
-function popQueue() {
-  const qdir = path.join(ROOT, "templates", "queue");
-  if (!fs.existsSync(qdir)) return null;
-  const files = fs.readdirSync(qdir).filter((f) => f.endsWith(".json")).sort();
-  if (files.length === 0) return null;
-  const file = path.join(qdir, files[0]);
-  const project = JSON.parse(fs.readFileSync(file, "utf8"));
-  fs.unlinkSync(file); // consumed; the manifest commit records the removal
-  console.log(`Queue: using ${files[0]} (${files.length - 1} spec(s) remaining).`);
-  if (files.length - 1 <= 3) {
-    console.log("::warning::Project queue is running low — top it up via Claude chat.");
-  }
-  return project;
+// The area that has gone longest without a project (never-covered areas
+// first, ties broken by AREAS order). Manifest entries without an `area`
+// (older, personal-use projects) don't count towards any area.
+function pickArea(manifest, areas = AREAS) {
+  const last = new Map(areas.map((a) => [a.key, -1]));
+  manifest.forEach((r, i) => {
+    if (last.has(r.area)) last.set(r.area, i);
+  });
+  return areas.reduce((best, a) => (last.get(a.key) < last.get(best.key) ? a : best));
 }
 
-async function callClaude(lane, approach, pastRepos) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
+// Queue mode: specs written by hand (see templates/SPEC.md), used oldest
+// first. Only a spec that passes the gate is consumed; invalid ones stay put
+// with a warning so you can fix them. Zero API cost.
+function popQueue(qdir, manifest) {
+  const entries = readQueue(qdir, manifest);
+  for (const e of entries.filter((q) => !q.ok)) {
+    console.log(`::warning::Skipping queue spec ${e.file}: ${e.errors.join("; ")}`);
+  }
+  const pick = entries.find((q) => q.ok);
+  if (!pick) return null;
+  fs.unlinkSync(path.join(qdir, pick.file)); // consumed; the manifest commit records the removal
+  const remaining = entries.filter((q) => q.ok).length - 1;
+  console.log(`Queue: using ${pick.file} (${remaining} valid spec(s) remaining).`);
+  if (remaining <= 3) {
+    console.log("::warning::Project queue is running low — restock it (see templates/SPEC.md).");
+  }
+  return pick;
+}
 
-  const prompt = `You are generating this week's project for a public GitHub portfolio of small, genuinely useful projects. Each project SOLVES A REAL EVERYDAY PROBLEM — no abstract demos, no toy katas. Visitors include recruiters and open-source contributors.
+function buildPrompt(area, approach, pastRepos) {
+  return `You are generating this week's project for a public GitHub portfolio of small projects that make people's working lives better. Visitors include recruiters, hiring managers and open-source contributors.
 
-This run's lane: ${lane.label}
-Lane brief: ${lane.hint}
+Problem area for this run: ${area.label}
+People who have these problems: ${area.audience}
+Area brief: ${area.hint}
 
-Technical approach constraint for this run (follow it, it keeps the portfolio varied):
+Selection rules — the spec is rejected automatically if it breaks them:
+1. Start from ONE specific, real workplace problem that the people above actually hit. Name who has it and what it costs them (time, errors, stress, risk).
+2. The outcome must be useful and demonstrable: someone can try it in under 5 minutes with the included sample input and see the problem solved. Not a technology showcase.
+3. Scope a first version (v1) that is complete on its own, and list at least 2 realistic next steps.
+4. Do NOT repeat any existing project's problem or name (list below). Renaming or numbering an existing idea counts as repeating it.
+5. Include at least 3 acceptance criteria that a reviewer can check, and at least one automated test that runs with plain "node --test" (node:test + node:assert, no dependencies).
+6. State privacy, security, accessibility and human-oversight considerations (write "not applicable" plus the reason when one doesn't apply). Never use real personal data in examples. Anything that acts automatically needs a human approval step.
+7. The demo must work offline, with no paid APIs and no secrets.
+
+Technical approach constraint (apply it where it fits the deliverable; it keeps the portfolio varied):
 ${approach}
 
 Existing repos (do NOT repeat these problems or names):
-${pastRepos.map((r) => `- ${r.name}: ${r.description}`).join("\n") || "(none yet)"}
+${pastRepos.map((r) => `- ${r.name}${r.area ? ` [${r.area}]` : ""}: ${r.description}`).join("\n") || "(none yet)"}
 
-Requirements:
-- Pick ONE specific, relatable real-world problem and solve it properly.
-- 3 to 6 files, each complete and working as-is. Plain JavaScript only, no TypeScript, no build step. For test projects, include exact npm setup commands in the README.
-- Repo name: short, memorable, kebab-case, describes the solution (e.g. "fair-split", "meeting-meter").
-- README.md must include: the real problem, the solution, how to use/run it, a short "How it's built" note, and a "Contribute" section with 2-3 concrete improvement ideas.
-- Include this exact line near the bottom of the README: "Scaffolded by an automated weekly pipeline, then refined by hand — see the factory repo for how it works."
-- One "good first issue": specific, under an hour of work, friendly.
-- A one-line repo description (max 100 chars) and 4-6 topic tags.
+Files: 3 to 6 files, each complete and working as-is. Plain JavaScript only, no TypeScript, no build step, no runtime dependencies.
+Repo name: short, memorable, kebab-case, describes the solution, must not end in a number.
+README.md must contain these exact "## " headings: ${README_SECTIONS.map((s) => `"${s.label}"`).join(", ")}, plus "How it's built" and "Limits and safety". Include this exact line near the bottom: "${SCAFFOLD_LINE}"
+One "good first issue": specific, under an hour of work, friendly.
+A one-line repo description (max 100 chars) and 4-6 topic tags.
 
 Respond ONLY with valid JSON, no markdown fences:
 {
   "repoName": "kebab-case-name",
   "description": "one-line repo description",
-  "topics": ["tag1", "tag2"],
+  "area": "${area.key}",
+  "audience": "who has this problem",
+  "problem": "the real problem and what it costs them",
+  "outcome": "what is better after using this",
+  "v1": "what this first version does and deliberately does not do",
+  "nextSteps": ["...", "..."],
+  "acceptanceCriteria": ["...", "...", "..."],
+  "demo": "exact steps to see it working with the sample input",
+  "considerations": { "privacy": "...", "security": "...", "accessibility": "...", "oversight": "..." },
+  "topics": ["tag1", "tag2", "tag3", "tag4"],
   "files": [ { "path": "README.md", "content": "..." } ],
   "issue": { "title": "...", "body": "..." }
 }`;
+}
+
+async function callClaude(area, approach, pastRepos, apiKey = process.env.ANTHROPIC_API_KEY) {
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -109,7 +141,7 @@ Respond ONLY with valid JSON, no markdown fences:
     body: JSON.stringify({
       model: "claude-sonnet-5",
       max_tokens: 12000,
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content: buildPrompt(area, approach, pastRepos) }],
     }),
   });
 
@@ -126,23 +158,40 @@ Respond ONLY with valid JSON, no markdown fences:
   return JSON.parse(text.replace(/```json|```/g, "").trim());
 }
 
-function loadFallback(lane, pastRepos) {
-  const specific = path.join(ROOT, "templates", `${lane.key}.json`);
-  const file = fs.existsSync(specific) ? specific : path.join(ROOT, "templates", "generic.json");
-  const project = JSON.parse(fs.readFileSync(file, "utf8"));
-  // Avoid name collisions if the fallback has been used before.
-  if (pastRepos.some((r) => r.name === project.repoName)) {
-    project.repoName = `${project.repoName}-${pastRepos.length}`;
-  }
-  return project;
+// Short, human reason for the digest. Raw API errors can be long JSON.
+function apiFailureReason(message) {
+  if (/credit balance/i.test(message)) return "the Claude API account has no credit";
+  if (/not set/i.test(message)) return "ANTHROPIC_API_KEY is not set";
+  return `the Claude API call failed (${message.slice(0, 120)})`;
 }
 
-function stage(project) {
-  fs.rmSync(OUT_DIR, { recursive: true, force: true });
-  fs.mkdirSync(OUT_DIR, { recursive: true });
+// Returns { project, source } or { skip: reason }. Never invents a fallback.
+async function chooseProject({ manifest, qdir, area, approach, generate }) {
+  const queued = popQueue(qdir, manifest);
+  if (queued) return { project: queued.spec, source: `queue (${queued.file})` };
+
+  let spec;
+  try {
+    spec = await generate(area, approach, manifest);
+  } catch (e) {
+    return { skip: `The queue has no valid specs and ${apiFailureReason(e.message)}.` };
+  }
+  const verdict = checkSpec(spec, manifest);
+  if (!verdict.ok) {
+    return {
+      skip: `The queue has no valid specs and the API's spec failed the quality gate: ${verdict.errors.slice(0, 3).join("; ")}.`,
+    };
+  }
+  return { project: spec, source: "Claude API" };
+}
+
+function stage(project, root = ROOT) {
+  const p = paths(root);
+  fs.rmSync(p.out, { recursive: true, force: true });
+  fs.mkdirSync(p.out, { recursive: true });
 
   const name = slugify(project.repoName);
-  const dir = path.join(OUT_DIR, name);
+  const dir = path.join(p.out, name);
   fs.mkdirSync(dir);
 
   for (const f of project.files) {
@@ -153,9 +202,9 @@ function stage(project) {
     fs.writeFileSync(dest, f.content, "utf8");
   }
 
-  fs.writeFileSync(path.join(ROOT, ".new-repo-name"), name, "utf8");
+  fs.writeFileSync(p.newName, name, "utf8");
   fs.writeFileSync(
-    path.join(ROOT, ".new-repo-meta.json"),
+    p.meta,
     JSON.stringify(
       {
         name,
@@ -169,39 +218,54 @@ function stage(project) {
     "utf8"
   );
 
-  // Append to manifest now; publish.sh pushes it with the factory commit.
-  const manifest = readManifest();
+  // Append to manifest now; the workflow commits it after publish.sh succeeds.
+  const manifest = readManifest(p.manifest);
   manifest.push({
     name,
     description: project.description || "",
+    area: project.area,
     createdAt: new Date().toISOString().slice(0, 10),
   });
-  fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2), "utf8");
+  fs.writeFileSync(p.manifest, JSON.stringify(manifest, null, 2), "utf8");
 
   console.log(`Staged: ${name} (${project.files.length} files)`);
 }
 
-(async () => {
-  const pastRepos = readManifest();
-  // Rotate by how many projects have shipped, not by calendar week — so two
-  // runs in the same week never land on an identical lane + approach.
-  const n = pastRepos.length;
-  const lane = LANES[n % LANES.length];
-  const approach = APPROACHES[n % APPROACHES.length];
+function setOutput(env, key, value) {
+  if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, `${key}=${value}\n`);
+}
 
-  console.log(`Project #${n + 1} — lane: ${lane.label}`);
+async function main({ root = ROOT, env = process.env, generate = callClaude } = {}) {
+  const p = paths(root);
+  // Clear markers from any earlier local run so the digest can't misreport.
+  for (const f of [p.newName, p.meta, p.skip, p.out]) fs.rmSync(f, { recursive: true, force: true });
+
+  const pastRepos = readManifest(p.manifest);
+  const area = pickArea(pastRepos);
+  const approach = APPROACHES[pastRepos.length % APPROACHES.length];
+
+  console.log(`Project #${pastRepos.length + 1} — area: ${area.label}`);
   console.log(`Approach: ${approach}`);
 
-  let project = popQueue();
-  if (!project) {
-    try {
-      project = await callClaude(lane, approach, pastRepos);
-      console.log("Generated via Claude API.");
-    } catch (err) {
-      console.warn(`API generation failed (${err.message}). Using fallback template.`);
-      project = loadFallback(lane, pastRepos);
-    }
+  const result = await chooseProject({ manifest: pastRepos, qdir: p.queue, area, approach, generate });
+  if (result.skip) {
+    fs.writeFileSync(p.skip, result.skip, "utf8");
+    console.log(`::warning::No project published this run. ${result.skip}`);
+    setOutput(env, "published", "false");
+    return result;
   }
 
-  stage(project);
-})();
+  console.log(`Source: ${result.source}`);
+  stage(result.project, root);
+  setOutput(env, "published", "true");
+  return result;
+}
+
+module.exports = { APPROACHES, pickArea, popQueue, buildPrompt, apiFailureReason, chooseProject, stage, main };
+
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

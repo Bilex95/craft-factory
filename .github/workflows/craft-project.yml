@@ -63,18 +63,24 @@ jobs:
         with:
           node-version: 20
 
+      # Sets published=false (and writes .skip-reason) when no spec passes the
+      # quality gate; the next two steps are then skipped and the digest
+      # reports why. Nothing unvalidated is ever published.
       - name: Generate this run's project
+        id: generate
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: node scripts/generate.js
 
       - name: Publish as a new public repo
+        if: ${{ steps.generate.outputs.published == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GH_OWNER: ${{ github.repository_owner }}
         run: bash scripts/publish.sh
 
       - name: Update manifest and commit
+        if: ${{ steps.generate.outputs.published == 'true' }}
         run: |
           git config user.name "craft-factory-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

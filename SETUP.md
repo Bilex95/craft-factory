@@ -35,7 +35,7 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 | Secret | Value |
 | --- | --- |
 | `GH_PAT` | the token from step 1. **A classic token with the `repo` scope is the reliable choice** — fine-grained tokens can only create repos when scoped to *All repositories* with *Administration: read/write*. If publishing fails with `401 Bad credentials` or `Resource not accessible by personal access token (createRepository)`, this secret is the cause. |
-| `ANTHROPIC_API_KEY` | Optional. Only used when the queue in `templates/queue/` is empty — then the generator calls the Claude API to invent the next project instead of falling back to the bundled generic template. Add it once the queue is running low if you don't want to keep topping it up by hand. Not needed while specs are queued. |
+| `ANTHROPIC_API_KEY` | Optional. Only used when `templates/queue/` has no valid specs — then the generator asks the Claude API for a project, and the result must pass the same quality gate as queued specs. Without a key (or without API credit) an empty queue means **no project that week**: nothing is published and the digest says why. There is no fallback template. Not needed while specs are queued. |
 
 ## 4. Test it
 
@@ -62,6 +62,10 @@ Cron fires **Tuesday and Thursday** at 11:05 UTC, then sleeps 0–3h randomly �
 
 ## Queue mode (no API key needed)
 
-The generator checks `templates/queue/` FIRST. If specs are there, it uses the oldest one and no API call happens at all.
+The generator checks `templates/queue/` FIRST. It uses the oldest spec that passes the quality gate and no API call happens at all. A spec that fails the gate (missing fields, no test, near-duplicate of an existing repo…) is skipped with a warning in the run log and left in place for you to fix.
 
-**To top up:** ask Claude in a chat — "generate 6 more project specs for my craft-factory queue, here's my repos.json so nothing repeats" — then save the JSON files into `templates/queue/` with the next numbers so they run in order, commit, and push. The digest warns you when the queue is running low (≤ 3 specs left).
+**To top up:** follow [`templates/SPEC.md`](templates/SPEC.md) — paste it and `repos.json` into a Claude chat, ask for 6 specs, save them into `templates/queue/` with the next numbers, run `node --test` (it validates every spec and runs each project's own tests), then commit and push. The digest keeps one 🪣 restock alert open while 3 or fewer valid specs are left, and closes it once the queue is refilled.
+
+## Checks
+
+`node --test` runs everything offline (Node 20+, no dependencies): the quality gate, duplicate detection, area selection, the digest/refine output with a fake GitHub CLI, and each queued project's own tests. The **CI** workflow runs `node --check` and `node --test` on every pull request.

@@ -9,24 +9,16 @@
 //   3. Anything waiting on your reply (open PRs / issues from other people).
 //
 // Because you own the factory repo, creating this issue pings you natively
-// (email + mobile) the moment it lands.
+// (email + mobile) the moment it lands. Once posted, it closes the previous
+// open refinement pass (see lib/issues.js).
 
-const { execSync, execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const ghIO = require("./lib/gh");
+const { PREFIX, supersede } = require("./lib/issues");
 
 const ROOT = path.join(__dirname, "..");
-const OWNER = process.env.GH_OWNER;
-const FACTORY = process.env.FACTORY_REPO; // e.g. "Bilex95/craft-factory"
 const STALE_DAYS = 14;
-
-function gh(args) {
-  return execSync(`gh ${args}`, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
-}
-
-function ghJSON(args) {
-  return JSON.parse(gh(args));
-}
 
 // Link to a user's profile WITHOUT an @mention, so contributors aren't
 // notified by (and confused by) this private reminder issue.
@@ -44,18 +36,8 @@ function quiet(text) {
   return String(text ?? "").replace(/(?<!\w)@(?=[A-Za-z0-9-])/g, "@\u200B");
 }
 
-// Create an issue without going through a shell — the body contains backticks
-// and quotes that a shell would mangle (command substitution, word splitting).
-function createIssue(repo, title, body) {
-  return execFileSync(
-    "gh",
-    ["issue", "create", "--repo", repo, "--title", title, "--body-file", "-"],
-    { input: body, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
-  );
-}
-
-function manifest() {
-  const p = path.join(ROOT, "repos.json");
+function manifest(root) {
+  const p = path.join(root, "repos.json");
   return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : [];
 }
 
@@ -63,9 +45,9 @@ function daysSince(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 }
 
-function repoView(name) {
+function repoView(io, OWNER, name) {
   try {
-    return ghJSON(
+    return io.ghJSON(
       `repo view ${OWNER}/${name} --json pushedAt,description,repositoryTopics,url`
     );
   } catch (e) {
@@ -73,9 +55,9 @@ function repoView(name) {
   }
 }
 
-function openGoodFirstIssues(name) {
+function openGoodFirstIssues(io, OWNER, name) {
   try {
-    return ghJSON(
+    return io.ghJSON(
       `issue list --repo ${OWNER}/${name} --state open --label "good first issue" --json number,title,comments --limit 20`
     );
   } catch (e) {
@@ -84,10 +66,10 @@ function openGoodFirstIssues(name) {
 }
 
 // Open PRs from others, or issues whose last comment isn't yours.
-function needsReply(name) {
+function needsReply(io, OWNER, name) {
   const items = [];
   try {
-    const prs = ghJSON(
+    const prs = io.ghJSON(
       `pr list --repo ${OWNER}/${name} --state open --json number,title,author --limit 20`
     );
     for (const pr of prs) {
@@ -97,7 +79,7 @@ function needsReply(name) {
         );
       }
     }
-    const issues = ghJSON(
+    const issues = io.ghJSON(
       `issue list --repo ${OWNER}/${name} --state open --json number,title,comments --limit 30`
     );
     for (const is of issues) {
@@ -121,17 +103,26 @@ function checklist(name, url) {
     "The scaffold shipped. This is the pass that makes it yours — aim for 2–5 real commits:",
     "",
     "- [ ] Clone it, run it, actually use it once. Note anything that feels off.",
+    "- [ ] Use it as the person in \"Who it's for\" would, on realistic input. Does it save them real time or effort? If not, fix the gap before polishing anything.",
+    "- [ ] Check the README's acceptance criteria and \"Try it\" demo actually hold on a clean checkout.",
     "- [ ] Fix or improve one real thing you noticed (not a cosmetic tweak).",
     "- [ ] Read the `good first issue` as a contributor would — genuinely doable in under an hour, with enough context? Tighten it.",
     "- [ ] README: confirm setup/run steps work from a clean checkout. Add a screenshot or short clip if it's visual.",
     "- [ ] Add one test, or one edge-case guard, a reviewer would respect.",
+    "- [ ] Safety pass: examples use invented data only, and anything that acts automatically has a human check first.",
     "- [ ] Commit with messages that describe the *why*, not \"update\".",
   ].join("\n");
 }
 
-(() => {
-  const repos = manifest();
-  const today = new Date().toISOString().slice(0, 10);
+function main({
+  io = ghIO,
+  root = ROOT,
+  owner = process.env.GH_OWNER,
+  factory = process.env.FACTORY_REPO, // e.g. "Bilex95/craft-factory"
+  today = new Date().toISOString().slice(0, 10),
+} = {}) {
+  const OWNER = owner;
+  const repos = manifest(root);
 
   if (repos.length === 0) {
     console.log("No repos in the manifest yet — nothing to refine.");
@@ -141,14 +132,14 @@ function checklist(name, url) {
   // Newest 2 repos get the hand-refinement checklist.
   const newest = repos.slice(-2).reverse();
   const checklistSections = newest.map((r) => {
-    const v = repoView(r.name);
+    const v = repoView(io, OWNER, r.name);
     return checklist(r.name, v?.url || `https://github.com/${OWNER}/${r.name}`);
   });
 
   // Rot scan across the whole portfolio.
   const rot = [];
   for (const r of repos) {
-    const v = repoView(r.name);
+    const v = repoView(io, OWNER, r.name);
     if (!v) {
       rot.push(`- ⚠️ **${r.name}** — could not read repo`);
       continue;
@@ -159,7 +150,7 @@ function checklist(name, url) {
     }
     if (!v.description) flags.push("no description");
     if (!v.repositoryTopics || v.repositoryTopics.length === 0) flags.push("no topics");
-    const untouched = openGoodFirstIssues(r.name).filter(
+    const untouched = openGoodFirstIssues(io, OWNER, r.name).filter(
       (i) => (i.comments?.length || 0) === 0
     );
     if (untouched.length > 0) {
@@ -171,7 +162,7 @@ function checklist(name, url) {
   // Waiting on your reply.
   const waiting = [];
   for (const r of repos) {
-    const items = needsReply(r.name);
+    const items = needsReply(io, OWNER, r.name);
     if (items.length > 0) {
       waiting.push(`**${r.name}**\n${items.map((i) => `- ${i}`).join("\n")}`);
     }
@@ -197,6 +188,11 @@ function checklist(name, url) {
     "_This pass posts a checklist only — it never commits code. That part is yours._",
   ].join("\n");
 
-  createIssue(FACTORY, `🔨 Refinement pass — ${today}`, body);
+  const url = io.createIssue(factory, `${PREFIX.refine} — ${today}`, body);
   console.log("Refinement pass issue posted.");
-})();
+  supersede(io, factory, PREFIX.refine, url);
+}
+
+module.exports = { quiet, quietUser, checklist, main };
+
+if (require.main === module) main();
