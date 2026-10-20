@@ -88,5 +88,11 @@
     "name": "fair-split-15",
     "description": "Split a group bill fairly when people ordered different things — no more awkward math at the table.",
     "createdAt": "2026-10-13"
+  },
+  {
+    "name": "log-fingerprint",
+    "description": "Collapse noisy log lines into a ranked list of error signatures for an incident ticket.",
+    "area": "it-ops",
+    "createdAt": "2026-10-20"
   }
 ]
