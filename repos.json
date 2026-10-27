@@ -94,5 +94,11 @@
     "description": "Collapse noisy log lines into a ranked list of error signatures for an incident ticket.",
     "area": "it-ops",
     "createdAt": "2026-10-20"
+  },
+  {
+    "name": "onboard-plan",
+    "description": "Turn an onboarding template and start date into a dated checklist that skips weekends and holidays.",
+    "area": "people-ops",
+    "createdAt": "2026-10-27"
   }
 ]
