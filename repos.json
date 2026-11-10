@@ -106,5 +106,11 @@
     "description": "Compare JUnit XML results across CI runs to separate flaky tests from genuinely broken ones.",
     "area": "qa-testing",
     "createdAt": "2026-11-03"
+  },
+  {
+    "name": "paste-guard",
+    "description": "Redact emails, cards, phones and API keys before pasting text into an AI tool, with human review.",
+    "area": "ai-automation",
+    "createdAt": "2026-11-10"
   }
 ]
