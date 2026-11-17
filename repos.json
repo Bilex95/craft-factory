@@ -112,5 +112,11 @@
     "description": "Redact emails, cards, phones and API keys before pasting text into an AI tool, with human review.",
     "area": "ai-automation",
     "createdAt": "2026-11-10"
+  },
+  {
+    "name": "release-notes-draft",
+    "description": "Turn git log into a grouped release-notes draft: breaking changes first, PRs linked, people thanked.",
+    "area": "dev-tools",
+    "createdAt": "2026-11-17"
   }
 ]
