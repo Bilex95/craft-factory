@@ -118,5 +118,11 @@
     "description": "Turn git log into a grouped release-notes draft: breaking changes first, PRs linked, people thanked.",
     "area": "dev-tools",
     "createdAt": "2026-11-17"
+  },
+  {
+    "name": "expense-check",
+    "description": "Check an expense-claim CSV against policy before approval: block errors, flag items for review.",
+    "area": "business-ops",
+    "createdAt": "2026-11-24"
   }
 ]
